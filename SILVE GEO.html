@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILVA-GEO Cloud | Portal Spasial Kehutanan Terintegrasi Google Sheets</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; font-family: 'Inter', system-ui, sans-serif; }
+    #map { height: 100%; width: 100%; z-index: 1; }
+    .custom-scroll::-webkit-scrollbar { width: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .leaflet-popup-content-wrapper { border-radius: 10px; padding: 2px; }
+  </style>
+</head>
+<body class="bg-slate-100 flex flex-col h-screen overflow-hidden">
+
+  <!-- HEADER / NAVBAR -->
+  <header class="bg-emerald-950 text-white px-4 py-2.5 shadow-md flex items-center justify-between z-20 border-b border-emerald-800">
+    <div class="flex items-center gap-3">
+      <div class="bg-emerald-700 p-2 rounded-lg shadow-inner">
+        <i class="fa-solid fa-tree-city text-xl text-emerald-200"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold text-base md:text-lg tracking-wide">SILVA-GEO</h1>
+          <span class="text-[10px] bg-emerald-800 text-emerald-200 px-2 py-0.5 rounded-full border border-emerald-600 font-semibold">Cloud Sheets v3.0</span>
+        </div>
+        <p class="text-xs text-emerald-300 hidden sm:block">Portal Spasial Kehutanan & Sinkronisasi Google Sheets</p>
+      </div>
+    </div>
+
+    <!-- INDIKATOR CLOUD, STATUS ROLE & TOMBOL AKSI -->
+    <div class="flex items-center gap-2">
+      <!-- Status Koneksi Google Sheets -->
+      <button onclick="syncFromGoogleSheets(true)" id="cloudStatusBadge" class="flex items-center gap-1.5 bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-700 px-2.5 py-1.5 rounded-lg text-xs transition" title="Klik untuk muat ulang data dari Google Sheets">
+        <i id="cloudStatusIcon" class="fa-solid fa-cloud text-slate-400"></i>
+        <span id="cloudStatusText" class="hidden lg:inline text-[11px] text-emerald-200">Mode Lokal</span>
+      </button>
+
+      <!-- Badge Role Aktif -->
+      <div class="flex items-center gap-2 bg-emerald-900/90 border border-emerald-700 px-3 py-1.5 rounded-lg text-xs">
+        <span id="roleDot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+        <div>
+          <span class="text-emerald-300 block text-[10px] leading-none">Akses Aktif:</span>
+          <strong id="activeUserLabel" class="text-white font-semibold">Publik (Hanya Lihat)</strong>
+        </div>
+      </div>
+
+      <!-- Tombol Ekspor -->
+      <button onclick="exportAllGeoJSON()" class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm" title="Unduh semua data spasial ke format GeoJSON">
+        <i class="fa-solid fa-download"></i>
+        <span class="hidden md:inline">GeoJSON</span>
+      </button>
+
+      <!-- Tombol Login / Ganti Akses -->
+      <button onclick="openAuthModal()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+        <i class="fa-solid fa-key"></i>
+        <span id="authBtnText">Masuk Akses</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <!-- SIDEBAR KIRI -->
+    <aside class="w-80 md:w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-lg">
+      
+      <!-- Navigasi Tab Sidebar -->
+      <div class="grid grid-cols-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+        <button onclick="switchTab('layers')" id="tabBtn-layers" class="py-3 px-2 border-b-2 border-emerald-600 text-emerald-800 bg-white flex items-center justify-center gap-1.5 font-bold">
+          <i class="fa-solid fa-layer-group"></i> Data & Layer
+        </button>
+        <button onclick="switchTab('input')" id="tabBtn-input" class="py-3 px-2 border-b-2 border-transparent hover:text-slate-900 flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-plus-circle"></i> Tambah Data
+        </button>
+        <button onclick="switchTab('admin')" id="tabBtn-admin" class="py-3 px-2 border-b-2 border-transparent hover:text-slate-900 flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-user-shield"></i> Panel Admin
+          <span id="adminLockIcon" class="text-[10px] text-amber-600"><i class="fa-solid fa-lock"></i></span>
+        </button>
+      </div>
+
+      <!-- ISI TAB 1: LAYER & DAFTAR OBJEK SPASIAL -->
+      <div id="tab-layers" class="flex-1 overflow-y-auto custom-scroll p-4 space-y-4">
+        
+        <!-- Ringkasan Statistik -->
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+            <div class="flex items-center justify-between text-emerald-800">
+              <span class="text-[11px] font-semibold uppercase">Data Asal (Master)</span>
+              <i class="fa-solid fa-shield-halved text-emerald-600"></i>
+            </div>
+            <p id="statOriginCount" class="text-xl font-bold text-emerald-950 mt-1">0</p>
+            <span class="text-[10px] text-emerald-700">Terkunci & Dilindungi</span>
+          </div>
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div class="flex items-center justify-between text-blue-800">
+              <span class="text-[11px] font-semibold uppercase">Data Kontributor</span>
+              <i class="fa-solid fa-users-viewfinder text-blue-600"></i>
+            </div>
+            <p id="statContribCount" class="text-xl font-bold text-blue-950 mt-1">0</p>
+            <span class="text-[10px] text-blue-700">Tambahan Lapangan</span>
+          </div>
+        </div>
+
+        <!-- Filter Sumber Data -->
+        <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Filter Sumber Data</h3>
+            <button onclick="syncFromGoogleSheets(true)" class="text-[11px] text-emerald-700 hover:underline flex items-center gap-1">
+              <i class="fa-solid fa-rotate"></i> Segarkan
+            </button>
+          </div>
+          <label class="flex items-center justify-between text-xs text-slate-700 cursor-pointer">
+            <span class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-sm bg-emerald-600 inline-block"></span>
+              Data Asal / Master (Admin Super)
+            </span>
+            <input type="checkbox" id="chkShowOrigin" checked onchange="renderMapFeatures()" class="accent-emerald-600 rounded" />
+          </label>
+          <label class="flex items-center justify-between text-xs text-slate-700 cursor-pointer">
+            <span class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-sm bg-blue-600 inline-block"></span>
+              Data Tambahan Kontributor
+            </span>
+            <input type="checkbox" id="chkShowContrib" checked onchange="renderMapFeatures()" class="accent-blue-600 rounded" />
+          </label>
+        </div>
+
+        <!-- Pilihan Basemap -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-slate-700 uppercase tracking-wider">Peta Dasar (Basemap)</label>
+          <select id="basemapSelect" onchange="changeBasemap(this.value)" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+            <option value="satellite">Citra Satelit (Esri World Imagery)</option>
+            <option value="topo">Peta Topografi (OpenTopoMap)</option>
+            <option value="osm">Peta Jalan Standar (OpenStreetMap)</option>
+          </select>
+        </div>
+
+        <!-- Daftar fitur spasial -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Daftar Objek Spasial</h3>
+            <span class="text-[11px] text-slate-400">Klik untuk fokus</span>
+          </div>
+          <div id="featureListContainer" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <!-- ISI TAB 2: TAMBAH DATA -->
+      <div id="tab-input" class="hidden flex-1 overflow-y-auto custom-scroll p-4 space-y-4">
+        
+        <div id="guestInputWarning" class="bg-amber-50 border border-amber-300 rounded-lg p-3.5 text-xs text-amber-900 space-y-2">
+          <div class="flex items-center gap-2 font-bold text-amber-800">
+            <i class="fa-solid fa-lock text-sm"></i> Akses Input Terkunci
+          </div>
+          <p class="leading-relaxed">Anda sedang berada dalam mode <strong>Publik (Hanya Lihat)</strong>. Silakan masuk menggunakan <strong>Kode Akses Kontributor</strong> atau <strong>PIN Super Admin</strong> untuk menambahkan data.</p>
+          <button onclick="openAuthModal()" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 rounded-lg transition">
+            Masukkan Kode Akses
+          </button>
+        </div>
+
+        <div id="authorizedInputForm" class="hidden space-y-4">
+          <div id="inputModeNotice" class="p-3 rounded-lg text-xs border"></div>
+
+          <form onsubmit="handleAddFeature(event)" class="space-y-3 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+            <h3 class="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5">
+              <i class="fa-solid fa-map-pin text-emerald-600"></i> Form Tambah Titik Spasial
+            </h3>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">Nama Objek / Lokasi *</label>
+              <input type="text" id="inpTitle" required placeholder="Contoh: Stup Lebah Trigona Blok C" class="w-full text-xs border border-slate-300 rounded-lg p-2" />
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">Kategori Kehutanan *</label>
+              <select id="inpCategory" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white">
+                <option value="Potensi HHBK (Madu/Kopi/Markisa/Nangka)">Potensi HHBK (Madu/Kopi/Markisa/Nangka)</option>
+                <option value="Rehabilitasi & Penanaman Pohon">Rehabilitasi & Penanaman Pohon</option>
+                <option value="Ekowisata & Jalur Trekking">Ekowisata & Jalur Trekking</option>
+                <option value="Perjumpaan Flora / Fauna">Perjumpaan Flora / Fauna (Biodiversitas)</option>
+                <option value="Titik Pantau Drone (SPUKTA)">Titik Pantau Udara / Drone (SPUKTA)</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Latitude *</label>
+                <input type="number" step="any" id="inpLat" required placeholder="-6.5842" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Longitude *</label>
+                <input type="number" step="any" id="inpLng" required placeholder="106.9025" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white" />
+              </div>
+            </div>
+            <p class="text-[11px] text-emerald-700 bg-emerald-50 p-2 rounded border border-emerald-200">
+              <i class="fa-solid fa-hand-pointer mr-1"></i> Klik pada peta untuk mengisi koordinat otomatis.
+            </p>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">Deskripsi / Kondisi Lapangan *</label>
+              <textarea id="inpDesc" rows="2" required placeholder="Jelaskan kondisi tegakan, jumlah bibit, atau potensi lokasi..." class="w-full text-xs border border-slate-300 rounded-lg p-2"></textarea>
+            </div>
+
+            <div id="superAdminOriginOption" class="hidden bg-emerald-950 text-emerald-100 p-2.5 rounded-lg text-xs">
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" id="chkSaveAsOrigin" checked class="mt-0.5 accent-amber-400" />
+                <span>
+                  <strong class="block text-amber-300">Kunci sebagai Data Asal (Master)</strong>
+                  <span class="text-[10px] text-emerald-200">Tersimpan di Google Sheets dengan status Terkunci (`isOrigin = TRUE`).</span>
+                </span>
+              </label>
+            </div>
+
+            <button type="submit" id="btnSubmitFeature" class="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs py-2.5 rounded-lg transition shadow">
+              <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Simpan Data ke Peta & Cloud
+            </button>
+          </form>
+
+          <!-- Impor File GeoJSON -->
+          <div class="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-2">
+            <h3 class="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5">
+              <i class="fa-solid fa-file-import text-blue-600"></i> Unggah File .GeoJSON
+            </h3>
+            <p class="text-[11px] text-slate-600">Tambahkan poligon atau titik dari file `.geojson` langsung ke Google Sheets tanpa menimpa Data Asal.</p>
+            <input type="file" id="geojsonFileInput" accept=".geojson,.json" onchange="handleImportGeoJSON(event)" class="block w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ISI TAB 3: PANEL KHUSUS SUPER ADMIN -->
+      <div id="tab-admin" class="hidden flex-1 overflow-y-auto custom-scroll p-4 space-y-4">
+        
+        <div id="nonAdminNotice" class="bg-red-50 border border-red-200 rounded-lg p-4 text-xs text-red-900 space-y-2.5">
+          <div class="flex items-center gap-2 font-bold text-red-800 text-sm">
+            <i class="fa-solid fa-user-lock"></i> Area Khusus Super Admin
+          </div>
+          <p class="leading-relaxed">Hanya <strong>Admin Super</strong> yang dapat menghubungkan Google Sheets, membuat kode akses untuk orang lain, atau mengubah Data Asal (Master).</p>
+          <button onclick="openAuthModal()" class="w-full bg-red-700 hover:bg-red-600 text-white font-bold py-2 rounded-lg transition">
+            Login sebagai Super Admin
+          </button>
+        </div>
+
+        <div id="superAdminPanel" class="hidden space-y-4">
+          
+          <div class="bg-emerald-900 text-white p-3.5 rounded-lg shadow-sm space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] uppercase tracking-wider bg-amber-400 text-slate-950 font-bold px-2 py-0.5 rounded">Super Admin Aktif</span>
+              <i class="fa-solid fa-crown text-amber-400"></i>
+            </div>
+            <h4 class="font-bold text-sm pt-1">Raden Triangga Wicaksana</h4>
+            <p class="text-[11px] text-emerald-200">Pemegang otoritas penuh Data Asal & Manajemen Akses Cloud.</p>
+          </div>
+
+          <!-- KONFIGURASI URL GOOGLE APPS SCRIPT -->
+          <div class="bg-blue-50/80 p-3.5 rounded-lg border border-blue-200 space-y-2.5">
+            <h3 class="text-xs font-bold text-blue-950 uppercase flex items-center gap-1.5">
+              <i class="fa-solid fa-table text-emerald-700"></i> Koneksi Cloud Google Sheets
+            </h3>
+            <p class="text-[11px] text-slate-600 leading-relaxed">
+              Tempelkan <strong>URL Web App Google Apps Script</strong> (berakhiran <code>/exec</code>) agar seluruh data asal, data kontributor, dan PIN akses tersimpan online.
+            </p>
+            <input type="url" id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec" class="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white font-mono" />
+            <div class="flex gap-2">
+              <button onclick="saveGasUrlConfig()" class="flex-1 bg-blue-700 hover:bg-blue-600 text-white font-bold text-xs py-2 rounded-lg transition">
+                <i class="fa-solid fa-link mr-1"></i> Hubungkan & Sinkronkan
+              </button>
+              <button onclick="disconnectGasUrl()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-3 py-2 rounded-lg font-semibold" title="Putuskan koneksi cloud">
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <!-- Form Buat Kode Akses untuk Orang Lain -->
+          <div class="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-3">
+            <h3 class="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5">
+              <i class="fa-solid fa-user-plus text-emerald-700"></i> Buat Kode Akses Kontributor
+            </h3>
+            <form onsubmit="handleCreateContributor(event)" class="space-y-2.5">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Nama Personel / Kelompok (KTH) *</label>
+                <input type="text" id="newUserName" required placeholder="Contoh: KTH Garuda / Penyuluh" class="w-full text-xs border border-slate-300 rounded-lg p-2" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Unit / Wilayah Kerja *</label>
+                <input type="text" id="newUserUnit" required placeholder="Contoh: Desa Bojong Koneng" class="w-full text-xs border border-slate-300 rounded-lg p-2" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Kode Akses / PIN Baru *</label>
+                <div class="flex gap-1.5">
+                  <input type="text" id="newUserCode" required placeholder="Contoh: KTH-GARUDA-01" class="flex-1 text-xs border border-slate-300 rounded-lg p-2 font-mono uppercase" />
+                  <button type="button" onclick="generateRandomPin()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-2.5 rounded-lg font-medium">
+                    <i class="fa-solid fa-dice"></i> Acak
+                  </button>
+                </div>
+              </div>
+              <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs py-2 rounded-lg transition">
+                <i class="fa-solid fa-key mr-1"></i> Simpan Kode Akses
+              </button>
+            </form>
+          </div>
+
+          <!-- Daftar Pemegang Kode Akses -->
+          <div class="space-y-2">
+            <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Daftar Pemegang Kode Akses</h3>
+            <div id="contributorListContainer" class="space-y-2"></div>
+          </div>
+
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- AREA PETA UTAMA -->
+    <main class="flex-1 relative">
+      <div id="map"></div>
+
+      <!-- Toast Notifikasi Sinkronisasi -->
+      <div id="syncToast" class="hidden absolute top-4 right-4 bg-slate-900/90 text-white text-xs px-3.5 py-2.5 rounded-xl shadow-lg z-[500] flex items-center gap-2">
+        <i class="fa-solid fa-spinner fa-spin text-amber-400"></i>
+        <span id="syncToastText">Menyinkronkan dengan Google Sheets...</span>
+      </div>
+
+      <!-- Legenda Mengambang -->
+      <div class="absolute bottom-5 right-4 bg-white/95 backdrop-blur border border-slate-200 rounded-xl shadow-lg p-3 z-[400] text-xs space-y-2 max-w-xs">
+        <div class="font-bold text-slate-800 flex items-center justify-between border-b border-slate-100 pb-1">
+          <span>Legenda & Proteksi Data</span>
+          <i class="fa-solid fa-shield-halved text-emerald-600"></i>
+        </div>
+        <div class="space-y-1.5 text-[11px]">
+          <div class="flex items-center gap-2">
+            <span class="w-3.5 h-3.5 rounded-full bg-emerald-600 border-2 border-amber-400 inline-block"></span>
+            <span class="text-slate-700"><strong>Data Asal (Master):</strong> Terkunci di Server</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3.5 h-3.5 rounded-full bg-blue-600 border-2 border-white shadow inline-block"></span>
+            <span class="text-slate-700"><strong>Data Kontributor:</strong> Tambahan tim lapangan</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <!-- MODAL LOGIN / GANTI AKSES -->
+  <div id="authModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+      <div class="bg-emerald-950 text-white px-5 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <i class="fa-solid fa-user-shield text-amber-400 text-lg"></i>
+          <div>
+            <h3 class="font-bold text-sm">Autentikasi Hak Akses WebGIS</h3>
+            <p class="text-[11px] text-emerald-300">Terhubung dengan tabel Users_Access</p>
+          </div>
+        </div>
+        <button onclick="closeAuthModal()" class="text-emerald-300 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <form onsubmit="handleLoginSubmit(event)" class="space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Masukkan Kode Akses / PIN:</label>
+            <input type="text" id="authPinInput" required placeholder="Ketik ADMIN-99 atau KTH-01" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+          </div>
+          <div id="authErrorMsg" class="hidden text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200"></div>
+          <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs py-2.5 rounded-lg transition shadow">
+            <i class="fa-solid fa-right-to-bracket mr-1"></i> Aktifkan Hak Akses
+          </button>
+        </form>
+
+        <div class="border-t border-slate-200 pt-3 space-y-2">
+          <span class="text-[11px] font-semibold text-slate-500 uppercase block">Pintasan Akses Cepat:</span>
+          <div class="grid grid-cols-1 gap-2">
+            <button onclick="quickLogin('ADMIN-99')" class="text-left p-2.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 transition flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                  <i class="fa-solid fa-crown text-amber-500"></i> Masuk sebagai Super Admin (Anda)
+                </div>
+                <p class="text-[11px] text-emerald-700">Atur koneksi Google Sheets, Data Asal & PIN</p>
+              </div>
+              <span class="font-mono text-[11px] bg-emerald-800 text-white px-2 py-0.5 rounded">ADMIN-99</span>
+            </button>
+
+            <button onclick="quickLogin('KTH-01')" class="text-left p-2.5 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 transition flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                  <i class="fa-solid fa-user-pen text-blue-600"></i> Masuk sebagai Kontributor (KTH-01)
+                </div>
+                <p class="text-[11px] text-blue-700">Hanya tambah data baru, Data Asal terkunci</p>
+              </div>
+              <span class="font-mono text-[11px] bg-blue-700 text-white px-2 py-0.5 rounded">KTH-01</span>
+            </button>
+
+            <button onclick="logoutToPublic()" class="text-left p-2 rounded-lg border border-slate-200 hover:bg-slate-100 transition flex items-center justify-between text-xs text-slate-600">
+              <span><i class="fa-solid fa-eye mr-1.5"></i> Mode Publik (Hanya Lihat)</span>
+              <span class="text-[10px] text-slate-400">Tanpa PIN</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /********************************************************************
+     * 1. KONFIGURASI GOOGLE APPS SCRIPT & FALLBACK STORAGE
+     ********************************************************************/
+    // Anda dapat mengisi langsung URL Web App Google Apps Script di sini,
+    // ATAU mengisinya nanti melalui menu "Panel Admin" di dalam halaman web.
+    const DEFAULT_GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbx.../exec"; 
+
+    const STORAGE_KEY_GAS_URL = 'SILVAGEO_CLOUD_GAS_URL';
+    const STORAGE_KEY_FEATURES = 'SILVAGEO_RBAC_FEATURES_V3';
+    const STORAGE_KEY_USERS = 'SILVAGEO_RBAC_USERS_V3';
+
+    const SUPER_ADMIN = {
+      code: 'ADMIN-99',
+      name: 'Raden Triangga Wicaksana (Super Admin)',
+      unit: 'Administrator Utama Portal Spasial',
+      role: 'superadmin'
+    };
+
+    const DEFAULT_CONTRIBUTORS = [
+      { code: 'KTH-01', name: 'KTH Wana Tani Cibuluh Lestari', unit: 'Desa Bojong Koneng, Babakan Madang', createdAt: '2026-10-12' },
+      { code: 'PENYULUH-01', name: 'Tim Penyuluh Kehutanan Lapangan', unit: 'Wilayah Kabupaten Bogor', createdAt: '2026-10-12' }
+    ];
+
+    const DEFAULT_FEATURES = [
+      {
+        id: 'orig-poly-1',
+        title: 'Blok Ekowisata & Hutan Bukit Daolong',
+        category: 'Ekowisata & Jalur Trekking',
+        description: 'Area kelola ekowisata masyarakat, jalur trekking 1,2 Km, dan konservasi lereng bukit di Desa Bojong Koneng.',
+        geometryType: 'Polygon',
+        coords: [[-6.5815, 106.9005], [-6.5815, 106.9065], [-6.5865, 106.9065], [-6.5865, 106.9005]],
+        isOrigin: true,
+        createdBy: 'Raden Triangga Wicaksana (Super Admin)',
+        createdAt: 'Data Asal / Master'
+      },
+      {
+        id: 'orig-poly-2',
+        title: 'Petak Rehabilitasi Penanaman 3 Ha (KTH Garuda)',
+        category: 'Rehabilitasi & Penanaman Pohon',
+        description: 'Zona penanaman 3.000 bibit pohon kehutanan & MPTS mendukung program FOLU Net Sink.',
+        geometryType: 'Polygon',
+        coords: [[-6.5872, 106.8975], [-6.5872, 106.9012], [-6.5902, 106.9012], [-6.5902, 106.8975]],
+        isOrigin: true,
+        createdBy: 'Raden Triangga Wicaksana (Super Admin)',
+        createdAt: 'Data Asal / Master'
+      },
+      {
+        id: 'orig-pt-1',
+        title: 'Sentra HHBK Es Markisa & Budidaya Lebah Madu',
+        category: 'Potensi HHBK (Madu/Kopi/Markisa/Nangka)',
+        description: 'Lokasi produksi minuman Es Markisa dan demplot stup lebah madu serta kopi bawah tegakan KTH Wana Tani Cibuluh Lestari.',
+        geometryType: 'Point',
+        coords: [-6.5838, 106.9032],
+        isOrigin: true,
+        createdBy: 'Raden Triangga Wicaksana (Super Admin)',
+        createdAt: 'Data Asal / Master'
+      },
+      {
+        id: 'orig-pt-2',
+        title: 'Titik Take-Off Pemetaan Udara SPUKTA (Drone)',
+        category: 'Titik Pantau Drone (SPUKTA)',
+        description: 'Titik lepas landas dan kalibrasi kompas pemetaan ortofoto kawasan hutan masyarakat.',
+        geometryType: 'Point',
+        coords: [-6.5852, 106.9018],
+        isOrigin: true,
+        createdBy: 'Raden Triangga Wicaksana (Super Admin)',
+        createdAt: 'Data Asal / Master'
+      }
+    ];
+
+    let currentSession = { role: 'guest', name: 'Publik (Hanya Lihat)', code: null, unit: '-' };
+    let featuresData = [];
+    let contributorsData = [];
+
+    function getActiveGasUrl() {
+      return localStorage.getItem(STORAGE_KEY_GAS_URL) || DEFAULT_GAS_WEBAPP_URL;
+    }
+
+    function showToast(msg, show = true) {
+      const toast = document.getElementById('syncToast');
+      document.getElementById('syncToastText').textContent = msg;
+      if (show) toast.classList.remove('hidden');
+      else toast.classList.add('hidden');
+    }
+
+    function updateCloudBadge(status, label) {
+      const icon = document.getElementById('cloudStatusIcon');
+      const text = document.getElementById('cloudStatusText');
+      if (status === 'connected') {
+        icon.className = 'fa-solid fa-cloud-check text-emerald-400';
+        text.textContent = label || 'Tersinkron Google Sheets';
+      } else if (status === 'syncing') {
+        icon.className = 'fa-solid fa-rotate fa-spin text-amber-400';
+        text.textContent = 'Menyinkronkan...';
+      } else {
+        icon.className = 'fa-solid fa-database text-slate-400';
+        text.textContent = label || 'Memori Lokal (Offline)';
+      }
+    }
+
+    /********************************************************************
+     * 2. KOMUNIKASI API KE GOOGLE SHEETS (GET & POST BEBAS CORS)
+     ********************************************************************/
+    async function syncFromGoogleSheets(manualTrigger = false) {
+      const gasUrl = getActiveGasUrl();
+      const urlInput = document.getElementById('gasUrlInput');
+      if (urlInput) urlInput.value = gasUrl;
+
+      // Jika belum ada URL Google Apps Script, gunakan cache lokal
+      if (!gasUrl) {
+        const savedFeatures = localStorage.getItem(STORAGE_KEY_FEATURES);
+        const savedUsers = localStorage.getItem(STORAGE_KEY_USERS);
+        featuresData = savedFeatures ? JSON.parse(savedFeatures) : JSON.parse(JSON.stringify(DEFAULT_FEATURES));
+        contributorsData = savedUsers ? JSON.parse(savedUsers) : JSON.parse(JSON.stringify(DEFAULT_CONTRIBUTORS));
+        updateCloudBadge('local', 'Mode Lokal (Belum Link Sheets)');
+        renderMapFeatures();
+        renderContributorList();
+        return;
+      }
+
+      try {
+        updateCloudBadge('syncing');
+        if (manualTrigger) showToast('Mengambil data terbaru dari Google Sheets...', true);
+
+        const res = await fetch(gasUrl);
+        const data = await res.json();
+
+        if (data.status === 'success') {
+          featuresData = data.features || [];
+          contributorsData = data.contributors || [];
+          localStorage.setItem(STORAGE_KEY_FEATURES, JSON.stringify(featuresData));
+          localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(contributorsData));
+          updateCloudBadge('connected', 'Google Sheets Aktif');
+          renderMapFeatures();
+          renderContributorList();
+        } else {
+          throw new Error(data.message || 'Gagal memuat data.');
+        }
+      } catch (err) {
+        console.warn('Fallback ke cache lokal:', err);
+        updateCloudBadge('local', 'Offline Cache');
+        const savedFeatures = localStorage.getItem(STORAGE_KEY_FEATURES);
+        const savedUsers = localStorage.getItem(STORAGE_KEY_USERS);
+        featuresData = savedFeatures ? JSON.parse(savedFeatures) : JSON.parse(JSON.stringify(DEFAULT_FEATURES));
+        contributorsData = savedUsers ? JSON.parse(savedUsers) : JSON.parse(JSON.stringify(DEFAULT_CONTRIBUTORS));
+        renderMapFeatures();
+        renderContributorList();
+      } finally {
+        showToast('', false);
+      }
+    }
+
+    async function postToGoogleSheets(payload) {
+      const gasUrl = getActiveGasUrl();
+      // Simpan salinan lokal terlebih dahulu
+      localStorage.setItem(STORAGE_KEY_FEATURES, JSON.stringify(featuresData));
+      localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(contributorsData));
+
+      if (!gasUrl) return { status: 'local_only' };
+
+      try {
+        showToast('Menyimpan perubahan ke Google Sheets...', true);
+        updateCloudBadge('syncing');
+
+        // Penting: Gunakan text/plain agar browser tidak mengirim OPTIONS preflight yang ditolak Google Apps Script
+        const response = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        updateCloudBadge('connected', 'Google Sheets Aktif');
+        showToast('', false);
+
+        if (result.status === 'error') {
+          alert('Peringatan Server Google Sheets: ' + result.message);
+          await syncFromGoogleSheets(false);
+        }
+        return result;
+      } catch (err) {
+        showToast('', false);
+        updateCloudBadge('local', 'Gagal Kirim Cloud');
+        alert('Perubahan disimpan di memori browser, namun gagal menghubungi Google Sheets. Pastikan URL Web App berakhiran /exec dan akses disetel ke "Anyone".');
+        return { status: 'error', message: err.toString() };
+      }
+    }
+
+    function saveGasUrlConfig() {
+      if (currentSession.role !== 'superadmin') return;
+      const val = document.getElementById('gasUrlInput').value.trim();
+      if (!val.startsWith('https://script.google.com/')) {
+        alert('Masukkan URL Web App Google Apps Script yang valid (diawali https://script.google.com/...).');
+        return;
+      }
+      localStorage.setItem(STORAGE_KEY_GAS_URL, val);
+      syncFromGoogleSheets(true);
+    }
+
+    function disconnectGasUrl() {
+      if (currentSession.role !== 'superadmin') return;
+      localStorage.removeItem(STORAGE_KEY_GAS_URL);
+      document.getElementById('gasUrlInput').value = '';
+      syncFromGoogleSheets(false);
+    }
+
+    /********************************************************************
+     * 3. INISIALISASI PETA LEAFLET
+     ********************************************************************/
+    const map = L.map('map').setView([-6.5855, 106.9020], 15);
+
+    const basemaps = {
+      satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri' }),
+      topo: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenTopoMap' }),
+      osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' })
+    };
+
+    let currentBasemap = basemaps.satellite.addTo(map);
+    const featureLayerGroup = L.featureGroup().addTo(map);
+    let tempClickMarker = null;
+
+    function changeBasemap(type) {
+      map.removeLayer(currentBasemap);
+      currentBasemap = basemaps[type].addTo(map);
+    }
+
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const latInput = document.getElementById('inpLat');
+      const lngInput = document.getElementById('inpLng');
+      if (latInput && lngInput) {
+        latInput.value = lat;
+        lngInput.value = lng;
+      }
+      if (currentSession.role !== 'guest') {
+        if (tempClickMarker) map.removeLayer(tempClickMarker);
+        tempClickMarker = L.circleMarker(e.latlng, {
+          radius: 7, color: '#f59e0b', fillColor: '#fbbf24', fillOpacity: 0.9
+        }).addTo(map).bindPopup(`<div class="text-xs"><strong>Koordinat Dipilih:</strong><br>${lat}, ${lng}</div>`).openPopup();
+      }
+    });
+
+    /********************************************************************
+     * 4. RENDER FITUR SPASIAL & KONTROL AKSES POPUP
+     ********************************************************************/
+    function renderMapFeatures() {
+      featureLayerGroup.clearLayers();
+      const showOrigin = document.getElementById('chkShowOrigin').checked;
+      const showContrib = document.getElementById('chkShowContrib').checked;
+
+      const listContainer = document.getElementById('featureListContainer');
+      listContainer.innerHTML = '';
+
+      let originCount = 0;
+      let contribCount = 0;
+
+      featuresData.forEach((item) => {
+        if (item.isOrigin) originCount++;
+        else contribCount++;
+
+        if (item.isOrigin && !showOrigin) return;
+        if (!item.isOrigin && !showContrib) return;
+
+        let leafletLayer;
+        if (item.geometryType === 'Polygon') {
+          leafletLayer = L.polygon(item.coords, {
+            color: item.isOrigin ? '#059669' : '#2563eb',
+            weight: 2.5,
+            fillColor: item.isOrigin ? '#10b981' : '#3b82f6',
+            fillOpacity: 0.28
+          });
+        } else {
+          leafletLayer = L.circleMarker(item.coords, {
+            radius: 9,
+            color: item.isOrigin ? '#fbbf24' : '#ffffff',
+            weight: 2.5,
+            fillColor: item.isOrigin ? '#059669' : '#2563eb',
+            fillOpacity: 0.95
+          });
+        }
+
+        const badgeHtml = item.isOrigin
+          ? `<span class="inline-block bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full"><i class="fa-solid fa-lock mr-1 text-emerald-700"></i>Data Asal (Master - Terkunci)</span>`
+          : `<span class="inline-block bg-blue-100 text-blue-900 border border-blue-300 text-[10px] font-bold px-2 py-0.5 rounded-full"><i class="fa-solid fa-user-check mr-1 text-blue-700"></i>Data Tambahan Kontributor</span>`;
+
+        let adminActionsHtml = '';
+        if (currentSession.role === 'superadmin') {
+          adminActionsHtml = `
+            <div class="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+              <button onclick="toggleOriginLock('${item.id}')" class="flex-1 bg-amber-100 hover:bg-amber-200 text-amber-900 text-[11px] font-semibold py-1 px-2 rounded transition">
+                <i class="fa-solid fa-shield-halved mr-1"></i>${item.isOrigin ? 'Buka Kunci Master' : 'Kunci Jadi Data Asal'}
+              </button>
+              <button onclick="deleteFeatureById('${item.id}')" class="bg-red-100 hover:bg-red-200 text-red-700 text-[11px] font-semibold py-1 px-2.5 rounded transition">
+                <i class="fa-solid fa-trash"></i> Hapus
+              </button>
+            </div>
+          `;
+        } else if (currentSession.role === 'contributor') {
+          adminActionsHtml = `
+            <div class="mt-2 pt-1.5 border-t border-slate-100 text-[10px] text-slate-400 italic">
+              <i class="fa-solid fa-lock mr-1"></i>Data dilindungi server. Kontributor hanya dapat menambah data baru.
+            </div>
+          `;
+        }
+
+        leafletLayer.bindPopup(`
+          <div class="p-1 max-w-xs space-y-1.5">
+            ${badgeHtml}
+            <h4 class="font-bold text-slate-900 text-sm leading-snug">${item.title}</h4>
+            <p class="text-[11px] font-semibold text-emerald-700">${item.category}</p>
+            <p class="text-xs text-slate-600 leading-relaxed">${item.description}</p>
+            <div class="text-[10px] text-slate-400 pt-1">
+              <div><strong>Diinput oleh:</strong> ${item.createdBy}</div>
+              <div><strong>Status/Waktu:</strong> ${item.createdAt}</div>
+            </div>
+            ${adminActionsHtml}
+          </div>
+        `);
+        featureLayerGroup.addLayer(leafletLayer);
+
+        const card = document.createElement('div');
+        card.className = `p-2.5 rounded-lg border text-xs cursor-pointer transition hover:shadow-sm ${
+          item.isOrigin ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-50' : 'bg-blue-50/60 border-blue-200 hover:bg-blue-50'
+        }`;
+        card.onclick = () => {
+          if (item.geometryType === 'Polygon') map.fitBounds(leafletLayer.getBounds(), { maxZoom: 16 });
+          else map.setView(item.coords, 17);
+          leafletLayer.openPopup();
+        };
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-2">
+            <span class="font-bold text-slate-800">${item.title}</span>
+            ${
+              item.isOrigin
+                ? '<span class="text-[10px] bg-emerald-800 text-white px-1.5 py-0.5 rounded font-semibold shrink-0"><i class="fa-solid fa-lock mr-1"></i>Asal</span>'
+                : '<span class="text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-semibold shrink-0">Kontributor</span>'
+            }
+          </div>
+          <p class="text-[11px] text-slate-500 mt-0.5 truncate">${item.description}</p>
+          <div class="text-[10px] text-slate-400 mt-1"><i class="fa-solid fa-user mr-1"></i>${item.createdBy}</div>
+        `;
+        listContainer.appendChild(card);
+      });
+
+      document.getElementById('statOriginCount').textContent = originCount;
+      document.getElementById('statContribCount').textContent = contribCount;
+    }
+
+    /********************************************************************
+     * 5. LOGIN & MANAJEMEN ROLE (RBAC)
+     ********************************************************************/
+    function openAuthModal() {
+      document.getElementById('authErrorMsg').classList.add('hidden');
+      document.getElementById('authPinInput').value = '';
+      const modal = document.getElementById('authModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeAuthModal() {
+      const modal = document.getElementById('authModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function handleLoginSubmit(e) {
+      e.preventDefault();
+      authenticateWithCode(document.getElementById('authPinInput').value.trim().toUpperCase());
+    }
+
+    function quickLogin(code) {
+      authenticateWithCode(code);
+    }
+
+    function authenticateWithCode(code) {
+      const errorBox = document.getElementById('authErrorMsg');
+
+      if (code === SUPER_ADMIN.code) {
+        currentSession = { role: 'superadmin', name: SUPER_ADMIN.name, code: SUPER_ADMIN.code, unit: SUPER_ADMIN.unit };
+        applyRoleUI();
+        closeAuthModal();
+        return;
+      }
+
+      const foundContributor = contributorsData.find(u => u.code.toUpperCase() === code);
+      if (foundContributor) {
+        currentSession = { role: 'contributor', name: foundContributor.name, code: foundContributor.code, unit: foundContributor.unit };
+        applyRoleUI();
+        closeAuthModal();
+        switchTab('input');
+        return;
+      }
+
+      errorBox.textContent = `Kode Akses "${code}" tidak valid atau sudah dicabut oleh Super Admin.`;
+      errorBox.classList.remove('hidden');
+    }
+
+    function logoutToPublic() {
+      currentSession = { role: 'guest', name: 'Publik (Hanya Lihat)', code: null, unit: '-' };
+      applyRoleUI();
+      closeAuthModal();
+    }
+
+    function applyRoleUI() {
+      const roleDot = document.getElementById('roleDot');
+      const activeUserLabel = document.getElementById('activeUserLabel');
+      const authBtnText = document.getElementById('authBtnText');
+      const adminLockIcon = document.getElementById('adminLockIcon');
+
+      const guestWarning = document.getElementById('guestInputWarning');
+      const authorizedForm = document.getElementById('authorizedInputForm');
+      const inputModeNotice = document.getElementById('inputModeNotice');
+      const superAdminOriginOption = document.getElementById('superAdminOriginOption');
+
+      const nonAdminNotice = document.getElementById('nonAdminNotice');
+      const superAdminPanel = document.getElementById('superAdminPanel');
+
+      if (currentSession.role === 'superadmin') {
+        roleDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse';
+        activeUserLabel.textContent = 'Super Admin (Akses Penuh)';
+        authBtnText.textContent = 'Ganti Akses';
+        adminLockIcon.innerHTML = '<i class="fa-solid fa-unlock text-emerald-600"></i>';
+
+        guestWarning.classList.add('hidden');
+        authorizedForm.classList.remove('hidden');
+        superAdminOriginOption.classList.remove('hidden');
+
+        inputModeNotice.className = 'p-3 rounded-lg text-xs border bg-emerald-50 border-emerald-300 text-emerald-950';
+        inputModeNotice.innerHTML = `<div class="font-bold"><i class="fa-solid fa-crown text-amber-500 mr-1"></i>Mode Super Admin</div><p class="mt-0.5 text-[11px]">Data yang Anda tambahkan dapat dikunci sebagai Data Asal (Master) di Google Sheets.</p>`;
+
+        nonAdminNotice.classList.add('hidden');
+        superAdminPanel.classList.remove('hidden');
+        renderContributorList();
+
+      } else if (currentSession.role === 'contributor') {
+        roleDot.className = 'w-2.5 h-2.5 rounded-full bg-blue-400';
+        activeUserLabel.textContent = `Kontributor: ${currentSession.name}`;
+        authBtnText.textContent = 'Ganti Akses';
+        adminLockIcon.innerHTML = '<i class="fa-solid fa-lock text-amber-600"></i>';
+
+        guestWarning.classList.add('hidden');
+        authorizedForm.classList.remove('hidden');
+        superAdminOriginOption.classList.add('hidden');
+
+        inputModeNotice.className = 'p-3 rounded-lg text-xs border bg-blue-50 border-blue-300 text-blue-950';
+        inputModeNotice.innerHTML = `<div class="font-bold"><i class="fa-solid fa-user-check text-blue-600 mr-1"></i>Kontributor: ${currentSession.name}</div><p class="mt-0.5 text-[11px]">Anda dapat menambah data baru ke Google Sheets, tetapi tidak dapat mengubah Data Asal.</p>`;
+
+        nonAdminNotice.classList.remove('hidden');
+        superAdminPanel.classList.add('hidden');
+      } else {
+        roleDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+        activeUserLabel.textContent = 'Publik (Hanya Lihat)';
+        authBtnText.textContent = 'Masuk Akses';
+        adminLockIcon.innerHTML = '<i class="fa-solid fa-lock text-amber-600"></i>';
+
+        guestWarning.classList.remove('hidden');
+        authorizedForm.classList.add('hidden');
+        nonAdminNotice.classList.remove('hidden');
+        superAdminPanel.classList.add('hidden');
+      }
+
+      renderMapFeatures();
+    }
+
+    /********************************************************************
+     * 6. OPERASI CRUD DATA SPASIAL & SINKRONISASI CLOUD
+     ********************************************************************/
+    async function handleAddFeature(e) {
+      e.preventDefault();
+      if (currentSession.role === 'guest') return;
+
+      const title = document.getElementById('inpTitle').value.trim();
+      const category = document.getElementById('inpCategory').value;
+      const lat = parseFloat(document.getElementById('inpLat').value);
+      const lng = parseFloat(document.getElementById('inpLng').value);
+      const desc = document.getElementById('inpDesc').value.trim();
+
+      const isOriginData = (currentSession.role === 'superadmin')
+        ? document.getElementById('chkSaveAsOrigin').checked
+        : false;
+
+      const newFeature = {
+        id: 'feat-' + Date.now(),
+        title,
+        category,
+        description: desc,
+        geometryType: 'Point',
+        coords: [lat, lng],
+        isOrigin: isOriginData,
+        createdBy: `${currentSession.name} (${currentSession.code})`,
+        createdAt: new Date().toISOString().split('T')[0]
+      };
+
+      featuresData.unshift(newFeature);
+      renderMapFeatures();
+
+      await postToGoogleSheets({
+        action: 'ADD_FEATURE',
+        authCode: currentSession.code,
+        feature: newFeature
+      });
+
+      if (tempClickMarker) {
+        map.removeLayer(tempClickMarker);
+        tempClickMarker = null;
+      }
+      map.setView([lat, lng], 17);
+      e.target.reset();
+      switchTab('layers');
+    }
+
+    function handleImportGeoJSON(event) {
+      const file = event.target.files[0];
+      if (!file || currentSession.role === 'guest') return;
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const geojson = JSON.parse(e.target.result);
+          const rawFeatures = geojson.features || (geojson.type === 'Feature' ? [geojson] : []);
+          const batchToSave = [];
+
+          rawFeatures.forEach((f, idx) => {
+            if (!f.geometry) return;
+            const props = f.properties || {};
+            const title = props.name || props.title || `Objek Impor #${idx + 1}`;
+            const category = props.category || 'Data Impor GeoJSON';
+            const desc = props.description || 'Diunggah melalui impor file GeoJSON.';
+
+            if (f.geometry.type === 'Point') {
+              const [lng, lat] = f.geometry.coordinates;
+              const obj = {
+                id: 'imp-' + Date.now() + '-' + idx,
+                title, category, description: desc,
+                geometryType: 'Point', coords: [lat, lng],
+                isOrigin: currentSession.role === 'superadmin',
+                createdBy: `${currentSession.name}`,
+                createdAt: new Date().toISOString().split('T')[0]
+              };
+              featuresData.unshift(obj);
+              batchToSave.push(obj);
+            } else if (f.geometry.type === 'Polygon') {
+              const ring = f.geometry.coordinates[0].map(c => [c[1], c[0]]);
+              const obj = {
+                id: 'imp-' + Date.now() + '-' + idx,
+                title, category, description: desc,
+                geometryType: 'Polygon', coords: ring,
+                isOrigin: currentSession.role === 'superadmin',
+                createdBy: `${currentSession.name}`,
+                createdAt: new Date().toISOString().split('T')[0]
+              };
+              featuresData.unshift(obj);
+              batchToSave.push(obj);
+            }
+          });
+
+          renderMapFeatures();
+          await postToGoogleSheets({
+            action: 'BULK_ADD_FEATURES',
+            authCode: currentSession.code,
+            features: batchToSave
+          });
+          switchTab('layers');
+        } catch (err) {
+          alert('Format file GeoJSON tidak valid.');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    async function toggleOriginLock(id) {
+      if (currentSession.role !== 'superadmin') return;
+      const target = featuresData.find(f => f.id === id);
+      if (!target) return;
+
+      target.isOrigin = !target.isOrigin;
+      renderMapFeatures();
+
+      await postToGoogleSheets({
+        action: 'TOGGLE_ORIGIN',
+        authCode: currentSession.code,
+        featureId: id
+      });
+    }
+
+    async function deleteFeatureById(id) {
+      if (currentSession.role !== 'superadmin') return;
+      const target = featuresData.find(f => f.id === id);
+      if (!target) return;
+
+      const msg = target.isOrigin
+        ? `PERINGATAN: "${target.title}" adalah DATA ASAL (MASTER). Yakin ingin menghapusnya dari Google Sheets?`
+        : `Hapus data kontribusi "${target.title}"?`;
+
+      if (confirm(msg)) {
+        featuresData = featuresData.filter(f => f.id !== id);
+        renderMapFeatures();
+        await postToGoogleSheets({
+          action: 'DELETE_FEATURE',
+          authCode: currentSession.code,
+          featureId: id
+        });
+      }
+    }
+
+    /********************************************************************
+     * 7. MANAJEMEN KODE AKSES KONTRIBUTOR DI GOOGLE SHEETS
+     ********************************************************************/
+    function generateRandomPin() {
+      const rand = Math.floor(100 + Math.random() * 900);
+      document.getElementById('newUserCode').value = `KTH-${rand}`;
+    }
+
+    async function handleCreateContributor(e) {
+      e.preventDefault();
+      if (currentSession.role !== 'superadmin') return;
+
+      const name = document.getElementById('newUserName').value.trim();
+      const unit = document.getElementById('newUserUnit').value.trim();
+      const code = document.getElementById('newUserCode').value.trim().toUpperCase();
+
+      if (code === SUPER_ADMIN.code || contributorsData.some(u => u.code.toUpperCase() === code)) {
+        alert('Kode Akses tersebut sudah digunakan.');
+        return;
+      }
+
+      const newUser = { code, name, unit, createdAt: new Date().toISOString().split('T')[0] };
+      contributorsData.unshift(newUser);
+      renderContributorList();
+
+      await postToGoogleSheets({
+        action: 'ADD_CONTRIBUTOR',
+        authCode: currentSession.code,
+        contributor: newUser
+      });
+
+      e.target.reset();
+    }
+
+    async function revokeContributorAccess(code) {
+      if (currentSession.role !== 'superadmin') return;
+      if (confirm(`Cabut hak akses untuk kode "${code}" di Google Sheets?`)) {
+        contributorsData = contributorsData.filter(u => u.code !== code);
+        renderContributorList();
+
+        await postToGoogleSheets({
+          action: 'REVOKE_CONTRIBUTOR',
+          authCode: currentSession.code,
+          code: code
+        });
+      }
+    }
+
+    function renderContributorList() {
+      const container = document.getElementById('contributorListContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      contributorsData.forEach(user => {
+        const div = document.createElement('div');
+        div.className = 'p-2.5 bg-white rounded-lg border border-slate-200 flex items-center justify-between gap-2 text-xs';
+        div.innerHTML = `
+          <div>
+            <div class="font-bold text-slate-800">${user.name}</div>
+            <div class="text-[11px] text-slate-500">${user.unit}</div>
+            <div class="mt-1 inline-block font-mono text-[11px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded font-bold">
+              PIN: ${user.code}
+            </div>
+          </div>
+          <button onclick="revokeContributorAccess('${user.code}')" class="text-red-600 hover:bg-red-50 p-2 rounded-lg transition" title="Cabut Akses">
+            <i class="fa-solid fa-user-slash"></i>
+          </button>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function switchTab(tabName) {
+      ['layers', 'input', 'admin'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.add('hidden');
+        document.getElementById(`tabBtn-${t}`).className = 'py-3 px-2 border-b-2 border-transparent hover:text-slate-900 flex items-center justify-center gap-1.5';
+      });
+      document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+      document.getElementById(`tabBtn-${tabName}`).className = 'py-3 px-2 border-b-2 border-emerald-600 text-emerald-800 bg-white flex items-center justify-center gap-1.5 font-bold';
+    }
+
+    function exportAllGeoJSON() {
+      const geojson = {
+        type: 'FeatureCollection',
+        features: featuresData.map(item => {
+          let geometry;
+          if (item.geometryType === 'Polygon') {
+            const ring = item.coords.map(c => [c[1], c[0]]);
+            ring.push(ring[0]);
+            geometry = { type: 'Polygon', coordinates: [ring] };
+          } else {
+            geometry = { type: 'Point', coordinates: [item.coords[1], item.coords[0]] };
+          }
+          return {
+            type: 'Feature',
+            properties: {
+              id: item.id, title: item.title, category: item.category,
+              description: item.description,
+              data_status: item.isOrigin ? 'DATA_ASAL_MASTER' : 'DATA_KONTRIBUTOR',
+              created_by: item.createdBy, created_at: item.createdAt
+            },
+            geometry
+          };
+        })
+      };
+      const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `SILVA-GEO_Cloud_${new Date().toISOString().slice(0,10)}.geojson`;
+      a.click();
+    }
+
+    // Inisialisasi awal
+    syncFromGoogleSheets(false);
+    applyRoleUI();
+  </script>
+</body>
+</html>
